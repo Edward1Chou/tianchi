@@ -336,3 +336,6 @@ def assign_pretrained_word_embedding(sess,vocabulary_index2word,vocab_size,textC
     sess.run(t_assign_embedding);
     print("word. exists embedding:", count_exist, " ;word not exist embedding:", count_not_exist)
     print("using pre-trained word emebedding.ended...")
+
+if __name__ == "__main__":
+    tf.app.run()
