@@ -40,22 +40,22 @@ def main(_):
     print("cnn_model.vocab_size:", vocab_size)
     num_classes = len(vocabulary_index2label)
     print("num_classes:", num_classes)
-    train, test, max_senlen = load_data_multilabel(FLAGS.traning_data_path, vocabulary_word2index, vocabulary_label2index,
-                                       training_portion=0.8)
+    train, test = load_data_multilabel(FLAGS.traning_data_path, vocabulary_word2index, vocabulary_label2index,
+                                       FLAGS.sentence_len, training_portion=0.8)
     trainX, trainY = train
     testX, testY = test
     """print some message for debug"""
     print("length of training data:", len(trainX), ";length of validation data:", len(testX))
     print("trainX[0]:", trainX[0])
     print("trainY[0]:", trainY[0])
-    max_sen_len = max_senlen if max_senlen > FLAGS.sentence_len else FLAGS.sentence_len
+    # max_sen_len = max_senlen if max_senlen > FLAGS.sentence_len else FLAGS.sentence_len
 
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         textCNN = TextCNN(filter_sizes, FLAGS.num_filters, num_classes, FLAGS.learning_rate, FLAGS.batch_size,
-                          FLAGS.decay_steps, FLAGS.decay_rate, max_sen_len, vocab_size, FLAGS.embed_size,
+                          FLAGS.decay_steps, FLAGS.decay_rate, FLAGS.sentence_len, vocab_size, FLAGS.embed_size,
                           FLAGS.is_training, multi_label_flag=FLAGS.multi_label_flag)
         saver = tf.train.Saver()
         if os.path.exists(FLAGS.ckpt_dir + "checkpoint"):

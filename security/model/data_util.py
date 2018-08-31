@@ -74,7 +74,7 @@ def create_vocabulary(training_data_path, vocab_size, name_scope='cnn'):
     return vocabulary_word2index,vocabulary_index2word,vocabulary_label2index,vocabulary_index2label
 
 
-def load_data_multilabel(traning_data_path, vocab_word2index, vocab_label2index, training_portion=0.95):
+def load_data_multilabel(traning_data_path, vocab_word2index, vocab_label2index, sen_len, training_portion=0.95):
     """
     convert data as indexes using word2index dicts.
     """
@@ -98,13 +98,14 @@ def load_data_multilabel(traning_data_path, vocab_word2index, vocab_label2index,
         y = transform_multilabel_as_multihot(label_list, label_size)
         X.append(x)
         Y.append(y)
-    X = pad_sequences(X, maxlen=max_senlen+1, value=0.)  # padding to max length 可能会发生截断
+    print("max sentence len: " + str(max_senlen))
+    X = pad_sequences(X, maxlen=sen_len, value=0.)  # padding to max length 可能会发生截断
     number_examples = len(lines)
     training_number = int(training_portion * number_examples)
     train = (X[0:training_number], Y[0:training_number])
     valid_number = min(1000, number_examples-training_number) # 可以稍微减少样本不均衡的问题
     test = (X[training_number + 1:training_number+valid_number+1], Y[training_number + 1:training_number+valid_number+1])
-    return train, test, max_senlen
+    return train, test
 
 
 def transform_multilabel_as_multihot(label_list,label_size):
