@@ -10,7 +10,7 @@ from textCNN import TextCNN
 
 """configuration"""
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string("traning_data_path", "/home/zhouchengyu/tianchi/security/tmp/train.txt", "path of traning data.")
+tf.app.flags.DEFINE_string("traning_data_path", "/home/zhouchengyu/tianchi/security/tmp/api_train.txt", "path of traning data.")
 tf.app.flags.DEFINE_integer("vocab_size", 100000, "maximum vocab size.")
 tf.app.flags.DEFINE_string("name_scope", "cnn", "name scope value.")
 
