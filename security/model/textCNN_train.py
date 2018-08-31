@@ -10,7 +10,7 @@ from textCNN import TextCNN
 
 """configuration"""
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string("traning_data_path", "../tmp/train.txt", "path of traning data.")
+tf.app.flags.DEFINE_string("traning_data_path", "/home/zhouchengyu/tianchi/security/tmp/train.txt", "path of traning data.")
 tf.app.flags.DEFINE_integer("vocab_size", 100000, "maximum vocab size.")
 tf.app.flags.DEFINE_string("name_scope", "cnn", "name scope value.")
 
@@ -18,7 +18,7 @@ tf.app.flags.DEFINE_float("learning_rate", 0.01, "learning rate")
 tf.app.flags.DEFINE_integer("batch_size", 32, "Batch size for training/evaluating.")
 tf.app.flags.DEFINE_integer("decay_steps", 100, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.9, "Rate of decay for learning rate.")
-tf.app.flags.DEFINE_string("ckpt_dir", "checkpoint/", "checkpoint location for the model")
+tf.app.flags.DEFINE_string("ckpt_dir", "/home/zhouchengyu/github/tianchi/security/checkpoint/", "checkpoint location for the model")
 tf.app.flags.DEFINE_integer("sentence_len", 2000, "max sentence length")
 tf.app.flags.DEFINE_integer("embed_size", 512, "embedding size")
 tf.app.flags.DEFINE_boolean("is_training", True, "is traning.true:tranining,false:testing/inference")
