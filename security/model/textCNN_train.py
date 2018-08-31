@@ -1,0 +1,339 @@
+#!/usr/bin/env python
+# encoding: utf-8
+import os
+import random
+import numpy as np
+import tensorflow as tf
+from data_util import create_vocabulary, load_data_multilabel
+from textCNN import TextCNN
+
+
+"""configuration"""
+FLAGS = tf.app.flags.FLAGS
+tf.app.flags.DEFINE_string("traning_data_path", "../tmp/train.txt", "path of traning data.")
+tf.app.flags.DEFINE_integer("vocab_size", 100000, "maximum vocab size.")
+tf.app.flags.DEFINE_string("name_scope", "cnn", "name scope value.")
+
+tf.app.flags.DEFINE_float("learning_rate", 0.01, "learning rate")
+tf.app.flags.DEFINE_integer("batch_size", 32, "Batch size for training/evaluating.")
+tf.app.flags.DEFINE_integer("decay_steps", 100, "how many steps before decay learning rate.")
+tf.app.flags.DEFINE_float("decay_rate", 0.9, "Rate of decay for learning rate.")
+tf.app.flags.DEFINE_string("ckpt_dir", "checkpoint/", "checkpoint location for the model")
+tf.app.flags.DEFINE_integer("sentence_len", 2000, "max sentence length")
+tf.app.flags.DEFINE_integer("embed_size", 512, "embedding size")
+tf.app.flags.DEFINE_boolean("is_training", True, "is traning.true:tranining,false:testing/inference")
+tf.app.flags.DEFINE_integer("num_epochs", 10, "number of epochs to run.")
+tf.app.flags.DEFINE_integer("validate_every", 1, "Validate every validate_every epochs.") #每10轮做一次验证
+tf.app.flags.DEFINE_boolean("use_embedding", False, "whether to use embedding or not.")
+tf.app.flags.DEFINE_integer("num_filters", 128, "number of filters")
+tf.app.flags.DEFINE_string("word2vec_model_path", "word2vec-title-desc.bin", "word2vec's vocabulary and vectors")
+tf.app.flags.DEFINE_string("name_scope", "cnn", "name scope value.")
+tf.app.flags.DEFINE_boolean("multi_label_flag", True, "use multi label or single label.")
+
+filter_sizes = [6, 7, 8]
+
+def main():
+    vocabulary_word2index, vocabulary_index2word, vocabulary_label2index, vocabulary_index2label = create_vocabulary(
+        FLAGS.traning_data_path, FLAGS.vocab_size, name_scope=FLAGS.name_scope)
+    vocab_size = len(vocabulary_word2index)
+    print("cnn_model.vocab_size:", vocab_size)
+    num_classes = len(vocabulary_index2label)
+    print("num_classes:", num_classes)
+    train, test, max_senlen = load_data_multilabel(FLAGS.traning_data_path, vocabulary_word2index, vocabulary_label2index,
+                                       training_portion=0.8)
+    trainX, trainY = train
+    testX, testY = test
+    """print some message for debug"""
+    print("length of training data:", len(trainX), ";length of validation data:", len(testX))
+    print("trainX[0]:", trainX[0])
+    print("trainY[0]:", trainY[0])
+    max_sen_len = max_senlen if max_senlen > FLAGS.sentence_len else FLAGS.sentence_len
+
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        textCNN = TextCNN(filter_sizes, FLAGS.num_filters, num_classes, FLAGS.learning_rate, FLAGS.batch_size,
+                          FLAGS.decay_steps, FLAGS.decay_rate, max_sen_len, vocab_size, FLAGS.embed_size,
+                          FLAGS.is_training, multi_label_flag=FLAGS.multi_label_flag)
+        saver = tf.train.Saver()
+        if os.path.exists(FLAGS.ckpt_dir + "checkpoint"):
+            print("Restoring Variables from Checkpoint.")
+            saver.restore(sess, tf.train.latest_checkpoint(FLAGS.ckpt_dir))
+            # for i in range(3): #decay learning rate if necessary.
+            #    print(i,"Going to decay learning rate by half.")
+            #    sess.run(textCNN.learning_rate_decay_half_op)
+        else:
+            print('Initializing Variables')
+            sess.run(tf.global_variables_initializer())
+            if FLAGS.use_embedding: #load pre-trained word embedding
+                assign_pretrained_word_embedding(sess, vocabulary_index2word, vocab_size, textCNN, FLAGS.word2vec_model_path)
+        curr_epoch = sess.run(textCNN.epoch_step)
+        # 3.feed data & training
+        number_of_training_data = len(trainX)
+        batch_size = FLAGS.batch_size
+        iteration = 0
+        for epoch in range(curr_epoch, FLAGS.num_epochs):
+            loss, counter = 0.0, 0
+            for start, end in zip(range(0, number_of_training_data, batch_size),
+                                  range(batch_size, number_of_training_data, batch_size)):
+                iteration = iteration + 1
+                if epoch == 0 and counter == 0:
+                    print("trainX[start:end]:", trainX[start:end])
+                # 构建feed_dict
+                feed_dict = {textCNN.input_x: trainX[start:end], textCNN.dropout_keep_prob: 0.5,
+                             textCNN.iter: iteration, textCNN.tst: not FLAGS.is_training}
+                if not FLAGS.multi_label_flag:
+                    feed_dict[textCNN.input_y] = trainY[start:end]
+                else:
+                    feed_dict[textCNN.input_y_multilabel] = trainY[start:end]
+
+                curr_loss, lr, _, _ = sess.run(
+                    [textCNN.loss_val, textCNN.learning_rate, textCNN.update_ema, textCNN.train_op], feed_dict)
+                loss, counter = loss + curr_loss, counter + 1
+                if counter % 50 == 0:
+                    print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" % (
+                    epoch, counter, loss / float(counter), lr))
+                print("#######################################eval########################################################")
+                if start % (1000 * FLAGS.batch_size) == 0:
+                    eval_loss, f1_score = do_eval(sess, textCNN, testX, testY, iteration, num_classes)
+                    print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch, eval_loss, f1_score))
+                    # save model to checkpoint
+                    save_path = FLAGS.ckpt_dir + "model.ckpt"
+                    saver.save(sess, save_path, global_step=epoch)
+                print("###################################################################################################")
+            # epoch increment
+            print("going to increment epoch counter....")
+            sess.run(textCNN.epoch_increment)
+
+            # 4.validation
+            print("epoch: " + str(epoch) + " validate_every: " + str(FLAGS.validate_every) +
+                  " check: " + str((epoch % FLAGS.validate_every == 0)))
+            if epoch % FLAGS.validate_every == 0:
+                eval_loss, f1_score = do_eval(sess, textCNN, testX, testY, iteration, num_classes)
+                print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch, eval_loss, f1_score))
+                # save model to checkpoint
+                save_path = FLAGS.ckpt_dir + "model.ckpt"
+                saver.save(sess, save_path, global_step=epoch)
+
+        # 5.最后在测试集上做测试，并报告测试准确率 Test
+        test_loss, f1_score = do_eval(sess, textCNN, testX, testY, iteration, num_classes)
+        print("Test Loss:%.3f" % (test_loss))
+
+
+def do_eval(sess, textCNN, evalX, evalY, iteration, num_classes):
+    """在验证集上做验证，报告损失、精确度"""
+    number_examples = len(evalX)
+    eval_loss,eval_counter,eval_f1_score,eval_p,eval_r = 0.0,0,0.0,0.0,0.0
+    batch_size = 1
+    label_dict_confuse_matrix = init_label_dict(num_classes)
+    for start, end in zip(range(0,number_examples,batch_size), range(batch_size,number_examples,batch_size)):
+        feed_dict = {textCNN.input_x: evalX[start:end], textCNN.input_y_multilabel: evalY[start:end],
+                     textCNN.dropout_keep_prob: 1.0, textCNN.iter: iteration, textCNN.tst: True}
+        curr_eval_loss, logits = sess.run([textCNN.loss_val, textCNN.logits], feed_dict)
+        predict_y = get_label_using_logits(logits[0], top_number=1) # logits[0]=>[1, num_class]
+        target_y = get_target_label_short(evalY[start:end][0]) # evalY[start:end][0]=>[1, num_class]
+        #f1_score,p,r=compute_f1_score(list(label_list_top5), evalY[start:end][0])
+        label_dict_confuse_matrix = compute_confuse_matrix(target_y, predict_y, label_dict_confuse_matrix)
+        eval_loss,eval_counter = eval_loss+curr_eval_loss,eval_counter+1
+
+    f1_micro_accusation,f1_macro_accusation = compute_micro_macro(label_dict_confuse_matrix) #label_dict_accusation is a dict, key is: accusation,value is: (TP,FP,FN). where TP is number of True Positive
+    f1_score = (f1_micro_accusation+f1_macro_accusation)/2.0
+    return eval_loss/float(eval_counter), f1_score
+
+
+def compute_f1_score(predict_y,eval_y):
+    """
+    compoute f1_score.
+    :param logits: [batch_size,label_size]
+    :param evalY: [batch_size,label_size]
+    :return:
+    """
+    f1_score=0.0
+    p_5=0.0
+    r_5=0.0
+    return f1_score,p_5,r_5
+
+
+def compute_f1_score_removed(label_list_top5,eval_y):
+    """
+    compoute f1_score.
+    :param logits: [batch_size,label_size]
+    :param evalY: [batch_size,label_size]
+    :return:
+    """
+    num_correct_label=0
+    eval_y_short=get_target_label_short(eval_y)
+    for label_predict in label_list_top5:
+        if label_predict in eval_y_short:
+            num_correct_label=num_correct_label+1
+    #P@5=Precision@5
+    num_labels_predicted=len(label_list_top5)
+    all_real_labels=len(eval_y_short)
+    p_5=num_correct_label/num_labels_predicted
+    #R@5=Recall@5
+    r_5=num_correct_label/all_real_labels
+    f1_score=2.0*p_5*r_5/(p_5+r_5+0.000001)
+    return f1_score,p_5,r_5
+
+random_number=300
+def compute_confuse_matrix(target_y,predict_y,label_dict,name='default'):
+    """
+    compute true postive(TP), false postive(FP), false negative(FN) given target lable and predict label
+    :param target_y:
+    :param predict_y:
+    :param label_dict {label:(TP,FP,FN)}
+    :return: macro_f1(a scalar),micro_f1(a scalar)
+    """
+    #1.get target label and predict label
+    if random.choice([x for x in range(random_number)]) ==1:
+        print(name+".target_y:",target_y,";predict_y:",predict_y) #debug purpose
+
+    #2.count number of TP,FP,FN for each class
+    y_labels_unique=[]
+    y_labels_unique.extend(target_y)
+    y_labels_unique.extend(predict_y)
+    y_labels_unique=list(set(y_labels_unique))
+    for i,label in enumerate(y_labels_unique): #e.g. label=2
+        TP, FP, FN = label_dict[label]
+        if label in predict_y and label in target_y:#predict=1,truth=1 (TP)
+            TP=TP+1
+        elif label in predict_y and label not in target_y:#predict=1,truth=0(FP)
+            FP=FP+1
+        elif label not in predict_y and label in target_y:#predict=0,truth=1(FN)
+            FN=FN+1
+        label_dict[label] = (TP, FP, FN)
+    return label_dict
+
+
+def compute_micro_macro(label_dict):
+    """
+    compute f1 of micro and macro
+    :param label_dict:
+    :return: f1_micro,f1_macro: scalar, scalar
+    """
+    f1_micro = compute_f1_micro_use_TFFPFN(label_dict)
+    f1_macro= compute_f1_macro_use_TFFPFN(label_dict)
+    return f1_micro,f1_macro
+
+
+def compute_TF_FP_FN_micro(label_dict):
+    """
+    compute micro FP,FP,FN
+    :param label_dict_accusation: a dict. {label:(TP, FP, FN)}
+    :return:TP_micro,FP_micro,FN_micro
+    """
+    TP_micro,FP_micro,FN_micro=0.0,0.0,0.0
+    for label,tuplee in label_dict.items():
+        TP,FP,FN=tuplee
+        TP_micro=TP_micro+TP
+        FP_micro=FP_micro+FP
+        FN_micro=FN_micro+FN
+    return TP_micro,FP_micro,FN_micro
+
+
+def compute_f1_micro_use_TFFPFN(label_dict):
+    """
+    compute f1_micro
+    :param label_dict: {label:(TP,FP,FN)}
+    :return: f1_micro: a scalar
+    """
+    TF_micro_accusation, FP_micro_accusation, FN_micro_accusation =compute_TF_FP_FN_micro(label_dict)
+    f1_micro_accusation = compute_f1(TF_micro_accusation, FP_micro_accusation, FN_micro_accusation,'micro')
+    return f1_micro_accusation
+
+
+def compute_f1_macro_use_TFFPFN(label_dict):
+    """
+    compute f1_macro
+    :param label_dict: {label:(TP,FP,FN)}
+    :return: f1_macro
+    """
+    f1_dict= {}
+    num_classes=len(label_dict)
+    for label, tuplee in label_dict.items():
+        TP,FP,FN=tuplee
+        f1_score_onelabel=compute_f1(TP,FP,FN,'macro')
+        f1_dict[label]=f1_score_onelabel
+    f1_score_sum=0.0
+    for label,f1_score in f1_dict.items():
+        f1_score_sum=f1_score_sum+f1_score
+    f1_score=f1_score_sum/float(num_classes)
+    return f1_score
+
+small_value=0.00001
+def compute_f1(TP,FP,FN,compute_type):
+    """
+    compute f1
+    :param TP_micro: number.e.g. 200
+    :param FP_micro: number.e.g. 200
+    :param FN_micro: number.e.g. 200
+    :return: f1_score: a scalar
+    """
+    precison=TP/(TP+FP+small_value)
+    recall=TP/(TP+FN+small_value)
+    f1_score=(2*precison*recall)/(precison+recall+small_value)
+
+    if random.choice([x for x in range(500)]) == 1:print(compute_type,"precison:",str(precison),";recall:",str(recall),";f1_score:",f1_score)
+
+    return f1_score
+
+
+def init_label_dict(num_classes):
+    """
+    init label dict. this dict will be used to save TP,FP,FN
+    :param num_classes:
+    :return: label_dict: a dict. {label_index:(0,0,0)}
+    """
+    label_dict={}
+    for i in range(num_classes):
+        label_dict[i]=(0,0,0)
+    return label_dict
+
+
+def get_target_label_short(eval_y):
+    eval_y_short = [] #will be like:[22,642,1391]
+    for index, label in enumerate(eval_y):
+        if label > 0:
+            eval_y_short.append(index)
+    return eval_y_short
+
+
+def get_label_using_logits(logits, top_number=5):
+    """get top5 predicted labels"""
+    index_list = np.argsort(logits)[-top_number:]
+    index_list = index_list[::-1]
+    return index_list
+
+
+def assign_pretrained_word_embedding(sess,vocabulary_index2word,vocab_size,textCNN,word2vec_model_path):
+    import word2vec # we put import here so that many people who do not use word2vec do not need to install this package
+    print("using pre-trained word emebedding.started.word2vec_model_path:",word2vec_model_path)
+    word2vec_model = word2vec.load(word2vec_model_path, kind='bin')
+    word2vec_dict = {}
+    for word, vector in zip(word2vec_model.vocab, word2vec_model.vectors):
+        word2vec_dict[word] = vector
+    word_embedding_2dlist = [[]] * vocab_size  # create an empty word_embedding list.
+    word_embedding_2dlist[0] = np.zeros(FLAGS.embed_size)  # assign empty for first word:'PAD'
+    bound = np.sqrt(6.0) / np.sqrt(vocab_size)  # bound for random variables.
+    count_exist = 0;
+    count_not_exist = 0
+    for i in range(2, vocab_size):  # loop each word. notice that the first two words are pad and unknown token
+        word = vocabulary_index2word[i]  # get a word
+        embedding = None
+        try:
+            embedding = word2vec_dict[word]  # try to get vector:it is an array.
+        except Exception:
+            embedding = None
+        if embedding is not None:  # the 'word' exist a embedding
+            word_embedding_2dlist[i] = embedding;
+            count_exist = count_exist + 1  # assign array to this word.
+        else:  # no embedding for this word
+            word_embedding_2dlist[i] = np.random.uniform(-bound, bound, FLAGS.embed_size);
+            count_not_exist = count_not_exist + 1  # init a random value for the word.
+    word_embedding_final = np.array(word_embedding_2dlist)  # covert to 2d array.
+    word_embedding = tf.constant(word_embedding_final, dtype=tf.float32)  # convert to tensor
+    t_assign_embedding = tf.assign(textCNN.Embedding,word_embedding)  # assign this value to our embedding variables of our model.
+    sess.run(t_assign_embedding);
+    print("word. exists embedding:", count_exist, " ;word not exist embedding:", count_not_exist)
+    print("using pre-trained word emebedding.ended...")

@@ -1,0 +1,5 @@
+.idea/
+security/data/*
+security/index/*
+security/tmp/*
+security/submit/*
