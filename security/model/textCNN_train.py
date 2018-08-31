@@ -27,7 +27,6 @@ tf.app.flags.DEFINE_integer("validate_every", 1, "Validate every validate_every 
 tf.app.flags.DEFINE_boolean("use_embedding", False, "whether to use embedding or not.")
 tf.app.flags.DEFINE_integer("num_filters", 128, "number of filters")
 tf.app.flags.DEFINE_string("word2vec_model_path", "word2vec-title-desc.bin", "word2vec's vocabulary and vectors")
-tf.app.flags.DEFINE_string("name_scope", "cnn", "name scope value.")
 tf.app.flags.DEFINE_boolean("multi_label_flag", True, "use multi label or single label.")
 
 filter_sizes = [6, 7, 8]
