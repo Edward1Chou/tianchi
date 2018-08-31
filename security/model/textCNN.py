@@ -156,7 +156,7 @@ class TextCNN:
 
     def loss(self, l2_lambda=0.0001):#0.001
         with tf.name_scope("loss"):
-            #input: `logits`:[batch_size, num_classes], and `labels`:[batch_size]
+            #input: `logits`:[batch_size,], and `labels`:[batch_size]
             #output: A 1-D `Tensor` of length `batch_size` of the same type as `logits` with the softmax cross entropy loss.
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_y, logits=self.logits);#sigmoid_cross_entropy_with_logits.#losses=tf.nn.softmax_cross_entropy_with_logits(labels=self.input_y,logits=self.logits)
             #print("1.sparse_softmax_cross_entropy_with_logits.losses:",losses) # shape=(?,)
