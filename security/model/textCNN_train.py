@@ -95,14 +95,15 @@ def main(_):
                 if counter % 50 == 0:
                     print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" % (
                     epoch, counter, loss / float(counter), lr))
-                print("#######################################eval########################################################")
                 if start % (1000 * FLAGS.batch_size) == 0:
+                    print("#######################################eval###############################################")
                     eval_loss, f1_score = do_eval(sess, textCNN, testX, testY, iteration, num_classes)
                     print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch, eval_loss, f1_score))
                     # save model to checkpoint
                     save_path = FLAGS.ckpt_dir + "model.ckpt"
                     saver.save(sess, save_path, global_step=epoch)
-                print("###################################################################################################")
+                    print("##########################################################################################")
+
             # epoch increment
             print("going to increment epoch counter....")
             sess.run(textCNN.epoch_increment)
