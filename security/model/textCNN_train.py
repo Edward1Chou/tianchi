@@ -31,7 +31,9 @@ tf.app.flags.DEFINE_boolean("multi_label_flag", True, "use multi label or single
 
 filter_sizes = [6, 7, 8]
 
-def main():
+
+def main(_):
+    """main必须有参数，应为tf.app.run会传参"""
     vocabulary_word2index, vocabulary_index2word, vocabulary_label2index, vocabulary_index2label = create_vocabulary(
         FLAGS.traning_data_path, FLAGS.vocab_size, name_scope=FLAGS.name_scope)
     vocab_size = len(vocabulary_word2index)
